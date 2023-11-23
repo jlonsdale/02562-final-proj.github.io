@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <script type="text/javascript" src="./src/script.js"></script>
-    <script type="text/javascript" src="./common/utils.js"></script>
+    <script type="text/javascript" src="./common/OBJParser.js"></script>
 
     <!-- WGSL code goes here -->
     <script id="wgsl" type="x-shader">
@@ -10,9 +10,11 @@
       const lookAtPoint:vec3<f32> = vec3f(0.0, 0.5, 0.0);
       const eyePoint:vec3<f32> = vec3f(2.0,1.5,2.0);
       const upVector:vec3<f32> = vec3f(0.0,1.0,0.0);
-      const lightPos:vec3<f32>  = vec3f(0.0,1.0,0.0);
+      const lightPos:vec3<f32>  = vec3f(0.0,2.0,0.0);
 
       const DEBUG_RED =  vec4f(1.0,0.0,0.0,1.0);
+      const DEBUG_WHITE =  vec4f(0.8,0.8,0.8,1.0);
+
 
       @group(0) @binding(0) var<uniform> funiforms : FUniforms;
       @group(0) @binding(1) var<uniform> iuniforms : IUniforms;
@@ -27,7 +29,8 @@
         distance: f32,
         depth: i32,
         color: vec4<f32>,
-        IOR: f32
+        IOR: f32,
+        material: u32
       }
 
       struct Ray {
@@ -114,6 +117,7 @@
           (*hitResult).point = intersectionPoint;
           (*hitResult).normal = plane.normal;
           (*hitResult).color = planeColor((*hitResult));
+          (*hitResult).material = 1;
           return true;
         }
 
@@ -177,7 +181,8 @@
         (*hitResult).normal =normalToTriangle;
         (*hitResult).point = intersectionPoint;
         (*hitResult).hasHit = true;
-        (*hitResult).color = DEBUG_RED;
+        (*hitResult).color = DEBUG_WHITE;
+        (*hitResult).material = 2;
 
         return true;
       }
@@ -200,6 +205,25 @@
         return (*hitResult);
       }
 
+      fn shadeMaterial(ray:ptr<function, Ray>, hitResult:ptr<function, HitInfo>) -> vec4f
+        {
+          if((*hitResult).material == 2) {
+            var ka = vec3f(0.5,0.5,0.6);
+            var kd = vec3f(0.2,0.6,0.2);
+            var hitDistanceFromLight = length(lightPos - (*hitResult).point);
+            var Ie = 1.0;
+            var lightDir = normalize(lightPos - (*hitResult).point);
+            var diffuse = (1/(hitDistanceFromLight*hitDistanceFromLight)) * Ie * (dot((*hitResult).normal, lightDir));
+            diffuse = clamp( diffuse, 0, 1);
+            var v = normalize((*ray).origin - (*hitResult).point);
+            var fragColor = vec4f((ka + kd*diffuse), 1.0);
+            return fragColor;
+         }
+         var fragColor = vec4f((*hitResult).color);
+         return fragColor;
+      }
+
+
       fn getRay(uv: vec2f) -> Ray {
         var adjusted_eye = vec3f(funiforms.scrollValue, funiforms.scrollValue*0.75, funiforms.scrollValue);
         var v =  normalize(lookAtPoint-adjusted_eye);
@@ -209,8 +233,8 @@
         var ray: Ray;
         ray.origin = adjusted_eye;
         ray.direction = q;
-        ray.tmin = 0.0001;
-        ray.tmax = 1000;
+        ray.tmin = 0.001;
+        ray.tmax = 100;
         return ray;
       }
 
@@ -237,7 +261,7 @@
         sceneIntersect(&ray, &hitResult);
 
         if(hitResult.hasHit) {
-          fragColor = hitResult.color;
+          fragColor = shadeMaterial(&ray, &hitResult);
         }
         else {
           var backgroundColor = getBackgroundColor(uv);
