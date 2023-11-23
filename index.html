@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script type="text/javascript" src="./src/script.js"></script>
+
+    <!-- WGSL code goes here -->
+    <script id="wgsl" type="x-shader">
+
+      const lookAtPoint:vec3<f32> = vec3f(0.0, 0.5, 0.0);
+      const eyePoint:vec3<f32> = vec3f(2.0,1.5,2.0);
+      const upVector:vec3<f32> = vec3f(0.0,1.0,0.0);
+      const lightPos:vec3<f32>  = vec3f(0.0,1.0,0.0);
+
+      const DEBUG_RED =  vec4f(1.0,0.0,0.0,1.0);
+
+      @group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
+      struct HitInfo {
+        hasHit: bool,
+        normal: vec3<f32>,
+        point: vec3<f32>,
+        distance: f32,
+        depth: i32,
+        color: vec4<f32>,
+        IOR: f32
+      }
+
+      struct Ray {
+        origin: vec3f,
+        direction: vec3f,
+        tmin: f32,
+        tmax: f32,
+      };
+
+      struct Light {
+        origin: vec3<f32>,
+        intensity: f32
+      }
+
+      struct Plane {
+        normal: vec3<f32>,
+        point: vec3<f32>,
+        color: vec4<f32>,
+      }
+
+      struct Uniforms {
+        scrollValue: f32,
+      };
+
+      struct VSOut {
+        @builtin(position) position: vec4f,
+        @location(0) coords : vec2f,
+      };
+
+      @vertex
+      fn main_vs(@builtin(vertex_index) VertexIndex : u32) -> VSOut
+      {
+        const pos = array<vec2f, 4>(vec2f(-1.0, 1.0), vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(1.0, -1.0));
+        var vsOut: VSOut;
+        vsOut.position = vec4f(pos[VertexIndex], 0.0, 1.0);
+        vsOut.coords = pos[VertexIndex];
+        return vsOut;
+      }
+
+      const scenePlane1:Plane = Plane(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 0.0), vec4f(0.1, 0.7, 0.0, 1.0));
+
+      fn planeColor(hitResult: HitInfo) -> vec4f {
+        let squareSize = 1.0;
+        let intersectionPoint = hitResult.point;
+        let isWhiteSquare = (floor(intersectionPoint.x / squareSize) + floor(intersectionPoint.z / squareSize)) % 2 == 0;
+
+        if isWhiteSquare {
+            var color = vec4(1.0, 1.0, 1.0, 1.0); // White color
+            return color;
+        } else {
+            var color = vec4(0.8, 0.8, 0.8, 1.0); // Light gray color
+            return color;
+        }
+      }
+
+      fn intersectRayWithPlane(ray:ptr<function, Ray>, hitResult: ptr<function, HitInfo>, plane:Plane) -> bool {
+        let rayOrigin = (*ray).origin;
+        let rayDirection = (*ray).direction;
+
+        let distanceToHit = dot(plane.point - rayOrigin, plane.normal) / dot(rayDirection, plane.normal);
+        let intersectionPoint = rayOrigin + distanceToHit * rayDirection;
+
+        if ((distanceToHit < (*ray).tmin) || (distanceToHit > (*ray).tmax ))
+        {
+          return false;
+        }
+
+        if (intersectionPoint.x >= -10.0 && intersectionPoint.x <= 10.0 && intersectionPoint.z >= -10.0 && intersectionPoint.z <= 10.0) {
+          (*ray).tmax = distanceToHit;
+          (*hitResult).hasHit = true;
+          (*hitResult).point = intersectionPoint;
+          (*hitResult).normal = plane.normal;
+          (*hitResult).color = planeColor((*hitResult));
+          return true;
+        }
+
+        return false;
+      }
+
+      fn sceneIntersect(ray:ptr<function, Ray>, hit:ptr<function, HitInfo>) -> HitInfo
+      {
+        intersectRayWithPlane(ray, hit, scenePlane1);
+        return (*hit);
+      }
+
+      fn getRay(uv: vec2f) -> Ray {
+        var adjusted_eye = vec3f(uniforms.scrollValue, uniforms.scrollValue*0.75, uniforms.scrollValue);
+        var v =  normalize(lookAtPoint-adjusted_eye);
+        var b1 = normalize(cross(v, upVector));
+        var b2 = (cross(b1, v));
+        var q = normalize(uv.x * b1 + uv.y * b2 + v);
+        var ray: Ray;
+        ray.origin = adjusted_eye;
+        ray.direction = q;
+        ray.tmin = 0.0001;
+        ray.tmax = 1000;
+        return ray;
+      }
+
+      fn getBackgroundColor(uv: vec2f) -> vec4f {
+        var dayBlue = vec4f(0.529, 0.808, 0.922, 1.0); // Daytime sky blue
+        var duskPurple = vec4f(0.5, 0.0, 0.5, 1.0);     // Dusky purple for the horizon
+        var mixFactor = (uv.y) * 1.5;            // Adjust the mixing factor for a smooth transition
+        var skyColor = mix(dayBlue, duskPurple, mixFactor); // Blend the colors to create a blue sky
+        return skyColor;
+      }
+
+      @fragment
+      fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f {
+        var pointLight = Light(lightPos, 3.14);
+
+        let uv = vec2f(coords.x*0.5, coords.y*0.5);
+
+        var ray = getRay(uv);
+        var hitResult: HitInfo;
+        hitResult.hasHit = false;
+
+        var fragColor = vec4f(0.0);
+
+        sceneIntersect(&ray, &hitResult);
+
+        if(hitResult.hasHit) {
+          fragColor = hitResult.color;
+        }
+        else {
+          var backgroundColor = getBackgroundColor(uv);
+          fragColor = backgroundColor;
+        }
+
+        return vec4<f32>(fragColor.rgb, 1.0);
+      }
+    </script>
+    <meta charset="UTF-8" />
+
+    <title>
+      Rendering Realistic Gemstones with Physically Based Rendering Techniques
+    </title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <h1>
+      Rendering Realistic Gemstones with Physically Based Rendering Techniques
+    </h1>
+
+    <div id="canvas-container">
+      <canvas id="c" width="600" height="600"></canvas>
+      <div id="gem-info">
+        <div class="toggle-container">
+          <label class="toggle-label">Low Performance Mode:</label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="performance-toggle" checked />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="gem-cut-container">
+          <label for="gem-cut-label">Select a Gem Cut:</label>
+          <select id="gem-cut-selector">
+            <option value="Diamond">Brilliant Cut</option>
+            <option value="Ruby">Pear Cut</option>
+            <option value="Apatite">Princess Cut</option>
+            <option value="Citrine">Marquise Cut</option>
+          </select>
+        </div>
+        <div class="refractive-index-container">
+          <label for="refractive-index-label">Refractive Index : </label>
+          <input type="range" id="refractive-index" name="refractive-index
+          min="1" max="3" step="0.01" value="2.42" />
+          <div class="refractive-index-value" id="refractive-index-value">
+            2.42
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
