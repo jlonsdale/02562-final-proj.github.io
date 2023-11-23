@@ -18,6 +18,11 @@ body {
   
   h1 {
     font-size: 24px;
+    font-weight: lighter;
+  }
+
+  h3 {
+    font-weight: lighter;
   }
   
   label {

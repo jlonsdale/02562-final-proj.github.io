@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <script type="text/javascript" src="./src/script.js"></script>
+    <script type="text/javascript" src="./common/utils.js"></script>
 
     <!-- WGSL code goes here -->
     <script id="wgsl" type="x-shader">
@@ -13,7 +14,11 @@
 
       const DEBUG_RED =  vec4f(1.0,0.0,0.0,1.0);
 
-      @group(0) @binding(0) var<uniform> uniforms : Uniforms;
+      @group(0) @binding(0) var<uniform> funiforms : FUniforms;
+      @group(0) @binding(1) var<uniform> iuniforms : IUniforms;
+      @group(0) @binding(2) var<storage, read> points: array<vec3<f32>>;
+      @group(0) @binding(3) var<storage, read> indices: array<vec3<u32>>;
+      @group(0) @binding(4) var<storage, read> normals: array<vec3<f32>>;
 
       struct HitInfo {
         hasHit: bool,
@@ -43,8 +48,21 @@
         color: vec4<f32>,
       }
 
-      struct Uniforms {
+      struct Triangle {
+        A: vec3f,
+        B: vec3f,
+        C: vec3f,
+        normA: vec3f,
+        normB: vec3f,
+        normC: vec3f,
+      }
+
+      struct FUniforms {
         scrollValue: f32,
+      };
+
+      struct IUniforms {
+        numberOfTriangles: i32,
       };
 
       struct VSOut {
@@ -65,7 +83,7 @@
       const scenePlane1:Plane = Plane(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 0.0), vec4f(0.1, 0.7, 0.0, 1.0));
 
       fn planeColor(hitResult: HitInfo) -> vec4f {
-        let squareSize = 1.0;
+        let squareSize = 1.5;
         let intersectionPoint = hitResult.point;
         let isWhiteSquare = (floor(intersectionPoint.x / squareSize) + floor(intersectionPoint.z / squareSize)) % 2 == 0;
 
@@ -102,14 +120,88 @@
         return false;
       }
 
-      fn sceneIntersect(ray:ptr<function, Ray>, hit:ptr<function, HitInfo>) -> HitInfo
+      fn getTriangleNormal(triangle: Triangle, intersectionPoint: vec3f) -> vec3f {
+        var vectorA = triangle.A - intersectionPoint;
+        var vectorB = triangle.B - intersectionPoint;
+        var vectorC = triangle.C - intersectionPoint;
+        var a0 = length(cross(triangle.A - triangle.B, triangle.A - triangle.C));
+        var a1 = length(cross(vectorB, vectorC)) / a0;
+        var a2 = length(cross(vectorC, vectorA)) / a0;
+        var a3 = length(cross(vectorA, vectorB)) / a0;
+        var normal = normalize(triangle.normA*a1 + triangle.normB*a2 + triangle.normC*a3);
+        return normal;
+       }
+
+      fn intersectRayWithTriangle(ray: ptr<function, Ray>, hitResult : ptr<function, HitInfo>, triangle: Triangle) -> bool {
+        var origin = (*ray).origin;
+        var direction = (*ray).direction;
+
+        var e0 = triangle.B - triangle.A;
+        var e1 = triangle.C - triangle.A;
+
+        // Find face normal
+        var n = cross(e0, e1);
+
+        // Compute ray-plane intersection
+        var q = dot(direction, n);
+
+        if(abs(q) < 1.0e-8f) {
+          return false;
+        }
+
+        q = 1.0f/q;
+        var o_to_v0 = triangle.A - origin;
+        var t = dot(o_to_v0, n)*q;
+
+        if(t > (*ray).tmax) {
+          return false;
+        }
+
+        var n_tmp = cross(o_to_v0, direction);
+        var beta = dot(n_tmp, e1)*q;
+
+        if(beta < 0.0f) {
+          return false;
+        }
+
+        var gamma = -dot(n_tmp, e0)*q;
+
+        if(gamma < 0.0f || beta + gamma > 1.0f) {
+          return false;
+        }
+
+        var intersectionPoint = origin + t * direction;
+        var normalToTriangle = getTriangleNormal(triangle, intersectionPoint);
+
+        (*ray).tmax = t;
+        (*hitResult).normal =normalToTriangle;
+        (*hitResult).point = intersectionPoint;
+        (*hitResult).hasHit = true;
+        (*hitResult).color = DEBUG_RED;
+
+        return true;
+      }
+
+      fn intersectRayWithTriMesh(ray: ptr<function, Ray>, hitResult : ptr<function, HitInfo>) -> HitInfo {
+        var index: vec3<u32>;
+
+        for (var t:i32=0; t<iuniforms.numberOfTriangles; t=t+1) {
+          index = indices[u32(t)];
+          var triangle = Triangle(points[index.x], points[index.y], points[index.z], normals[index.x], normals[index.y], normals[index.z]);
+          intersectRayWithTriangle(ray, hitResult, triangle);
+        }
+        return (*hitResult);
+      }
+
+      fn sceneIntersect(ray:ptr<function, Ray>, hitResult:ptr<function, HitInfo>) -> HitInfo
       {
-        intersectRayWithPlane(ray, hit, scenePlane1);
-        return (*hit);
+        intersectRayWithPlane(ray, hitResult, scenePlane1);
+        intersectRayWithTriMesh(ray, hitResult);
+        return (*hitResult);
       }
 
       fn getRay(uv: vec2f) -> Ray {
-        var adjusted_eye = vec3f(uniforms.scrollValue, uniforms.scrollValue*0.75, uniforms.scrollValue);
+        var adjusted_eye = vec3f(funiforms.scrollValue, funiforms.scrollValue*0.75, funiforms.scrollValue);
         var v =  normalize(lookAtPoint-adjusted_eye);
         var b1 = normalize(cross(v, upVector));
         var b2 = (cross(b1, v));
@@ -163,8 +255,11 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <h3>02562 Rendering - Jessie Lonsdale S230002</h3>
+
     <h1>
-      Rendering Realistic Gemstones with Physically Based Rendering Techniques
+      💎 Rendering Realistic Gemstones with Physically Based Rendering
+      Techniques 💎
     </h1>
 
     <div id="canvas-container">
