@@ -3,6 +3,7 @@ window.onload = function () {
 };
 
 let scrollValue = 3;
+let theta = 0.2;
 const minscrollValue = 3;
 const maxscrollValue = 100;
 
@@ -12,9 +13,8 @@ async function main() {
   const handleScroll = (event) => {
     scrollValue = Math.max(
       minscrollValue,
-      Math.min(maxscrollValue, scrollValue + (event.deltaY < 0 ? -0.1 : 0.1))
+      Math.min(maxscrollValue, scrollValue + (event.deltaY < 0 ? -0.05 : 0.05))
     );
-    render();
   };
 
   window.addEventListener("wheel", handleScroll);
@@ -23,25 +23,6 @@ async function main() {
   const adapter = await gpu.requestAdapter();
   const device = await adapter.requestDevice();
   const canvas = document.getElementById("c");
-
-  const objDoc = new OBJDoc("diamond");
-  try {
-    let response = await fetch("../assets/Diamond_High_Poly.obj");
-    if (response.ok) {
-      const text = await response.text();
-      const scale = 1;
-      const reverse = true;
-      await objDoc.parse(text, scale, reverse);
-    }
-  } catch (error) {
-    console.log("ruh roh", error);
-  }
-
-  const drawingInfo = await objDoc.getDrawingInfo();
-
-  const vertices = drawingInfo.vertices;
-  const indices = drawingInfo.indices;
-  const normals = drawingInfo.normals;
 
   const context =
     canvas.getContext("gpupresent") || canvas.getContext("webgpu");
@@ -70,51 +51,20 @@ async function main() {
     },
   });
 
-  const vertexBuffer = await device.createBuffer({
-    size: (vertices.byteLength + 3) & ~3,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-  });
-  const indexBuffer = await device.createBuffer({
-    size: (indices.byteLength + 3) & ~3,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-  });
-  const normalBuffer = await device.createBuffer({
-    size: (normals.byteLength + 3) & ~3,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-  });
+  const render = async () => {
+    theta += 0.01;
+    let funiforms = new Float32Array([scrollValue, theta]);
 
-  let iuniforms = new Int32Array([vertices.length + 10]);
-  let funiforms = new Float32Array([scrollValue]);
+    const f_uniformBuffer = await device.createBuffer({
+      size: funiforms.byteLength,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
 
-  await device.queue.writeBuffer(vertexBuffer, 0, vertices);
-  await device.queue.writeBuffer(indexBuffer, 0, indices);
-  await device.queue.writeBuffer(normalBuffer, 0, normals);
-
-  const i_uniformBuffer = await device.createBuffer({
-    size: iuniforms.byteLength,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  });
-
-  const f_uniformBuffer = await device.createBuffer({
-    size: funiforms.byteLength,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  });
-
-  const render = () => {
-    let iuniforms = new Uint32Array([vertices.length]);
-    let funiforms = new Float32Array([scrollValue]);
     device.queue.writeBuffer(f_uniformBuffer, 0, funiforms);
-    device.queue.writeBuffer(i_uniformBuffer, 0, iuniforms);
 
     const bindGroup = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: f_uniformBuffer } },
-        { binding: 1, resource: { buffer: i_uniformBuffer } },
-        { binding: 2, resource: { buffer: vertexBuffer } },
-        { binding: 3, resource: { buffer: indexBuffer } },
-        { binding: 4, resource: { buffer: normalBuffer } },
-      ],
+      entries: [{ binding: 0, resource: { buffer: f_uniformBuffer } }],
     });
 
     const encoder = device.createCommandEncoder();
@@ -133,7 +83,7 @@ async function main() {
     pass.end();
 
     device.queue.submit([encoder.finish()]);
+    requestAnimationFrame(render);
   };
-
-  render();
+  requestAnimationFrame(render);
 }

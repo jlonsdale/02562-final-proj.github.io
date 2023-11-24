@@ -7,270 +7,250 @@
     <!-- WGSL code goes here -->
     <script id="wgsl" type="x-shader">
 
-      const lookAtPoint:vec3<f32> = vec3f(0.0, 0.5, 0.0);
-      const eyePoint:vec3<f32> = vec3f(2.0,1.5,2.0);
-      const upVector:vec3<f32> = vec3f(0.0,1.0,0.0);
-      const lightPos:vec3<f32>  = vec3f(0.0,2.0,0.0);
+         @group(0) @binding(0) var<uniform> funiforms : FUniforms;
 
-      const DEBUG_RED =  vec4f(1.0,0.0,0.0,1.0);
-      const DEBUG_WHITE =  vec4f(0.8,0.8,0.8,1.0);
-
-
-      @group(0) @binding(0) var<uniform> funiforms : FUniforms;
-      @group(0) @binding(1) var<uniform> iuniforms : IUniforms;
-      @group(0) @binding(2) var<storage, read> points: array<vec3<f32>>;
-      @group(0) @binding(3) var<storage, read> indices: array<vec3<u32>>;
-      @group(0) @binding(4) var<storage, read> normals: array<vec3<f32>>;
-
-      struct HitInfo {
-        hasHit: bool,
-        normal: vec3<f32>,
-        point: vec3<f32>,
-        distance: f32,
-        depth: i32,
-        color: vec4<f32>,
-        IOR: f32,
-        material: u32
-      }
-
-      struct Ray {
-        origin: vec3f,
-        direction: vec3f,
-        tmin: f32,
-        tmax: f32,
-      };
-
-      struct Light {
-        origin: vec3<f32>,
-        intensity: f32
-      }
-
-      struct Plane {
-        normal: vec3<f32>,
-        point: vec3<f32>,
-        color: vec4<f32>,
-      }
-
-      struct Triangle {
-        A: vec3f,
-        B: vec3f,
-        C: vec3f,
-        normA: vec3f,
-        normB: vec3f,
-        normC: vec3f,
-      }
-
-      struct FUniforms {
-        scrollValue: f32,
-      };
-
-      struct IUniforms {
-        numberOfTriangles: i32,
-      };
-
-      struct VSOut {
-        @builtin(position) position: vec4f,
-        @location(0) coords : vec2f,
-      };
-
-      @vertex
-      fn main_vs(@builtin(vertex_index) VertexIndex : u32) -> VSOut
-      {
-        const pos = array<vec2f, 4>(vec2f(-1.0, 1.0), vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(1.0, -1.0));
-        var vsOut: VSOut;
-        vsOut.position = vec4f(pos[VertexIndex], 0.0, 1.0);
-        vsOut.coords = pos[VertexIndex];
-        return vsOut;
-      }
-
-      const scenePlane1:Plane = Plane(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 0.0), vec4f(0.1, 0.7, 0.0, 1.0));
-
-      fn planeColor(hitResult: HitInfo) -> vec4f {
-        let squareSize = 1.5;
-        let intersectionPoint = hitResult.point;
-        let isWhiteSquare = (floor(intersectionPoint.x / squareSize) + floor(intersectionPoint.z / squareSize)) % 2 == 0;
-
-        if isWhiteSquare {
-            var color = vec4(1.0, 1.0, 1.0, 1.0); // White color
-            return color;
-        } else {
-            var color = vec4(0.8, 0.8, 0.8, 1.0); // Light gray color
-            return color;
+        struct HitInfo {
+          hasHit: bool,
+          normal: vec3<f32>,
+          point: vec3<f32>,
+          distance: f32,
+          depth: i32,
+          color: vec4<f32>,
+          IOR: f32,
+          material: u32
         }
-      }
 
-      fn intersectRayWithPlane(ray:ptr<function, Ray>, hitResult: ptr<function, HitInfo>, plane:Plane) -> bool {
-        let rayOrigin = (*ray).origin;
-        let rayDirection = (*ray).direction;
+        struct Ray {
+          origin: vec3f,
+          direction: vec3f,
+          tmin: f32,
+          tmax: f32,
+        };
 
-        let distanceToHit = dot(plane.point - rayOrigin, plane.normal) / dot(rayDirection, plane.normal);
-        let intersectionPoint = rayOrigin + distanceToHit * rayDirection;
+        struct FUniforms {
+          scrollValue: f32,
+          theta: f32
+        };
 
-        if ((distanceToHit < (*ray).tmin) || (distanceToHit > (*ray).tmax ))
+        struct VSOut {
+          @builtin(position) position: vec4f,
+          @location(0) coords : vec2f,
+        };
+
+        const lookAtPoint:vec3<f32> = vec3f(0.0, 0.5, 0.0);
+        const eyePoint:vec3<f32> = vec3f(2.0,1.5,2.0);
+        const upVector:vec3<f32> = vec3f(0.0,1.0,0.0);
+        const lightPos = vec3f(1.0,1.0,1.0);
+
+        const DEBUG_RED =  vec4f(1.0,0.0,0.0,1.0);
+        const DEBUG_WHITE =  vec4f(0.6,0.6,0.6,1.0);
+
+        @vertex
+        fn main_vs(@builtin(vertex_index) VertexIndex : u32) -> VSOut
         {
-          return false;
+          const pos = array<vec2f, 4>(vec2f(-1.0, 1.0), vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(1.0, -1.0));
+          var vsOut: VSOut;
+          vsOut.position = vec4f(pos[VertexIndex], 0.0, 1.0);
+          vsOut.coords = pos[VertexIndex];
+          return vsOut;
         }
 
-        if (intersectionPoint.x >= -10.0 && intersectionPoint.x <= 10.0 && intersectionPoint.z >= -10.0 && intersectionPoint.z <= 10.0) {
+        fn intersectRayWithPlane(ray:ptr<function, Ray>, hitResult:ptr<function, HitInfo>, plane: RoundPlane) -> bool {      
+          var pointOnPlane = plane.point;
+          var planeNormal = plane.normal;
+          var radius = plane.radius;
+      
+          var rayDirection = (*ray).direction;
+          var rayOrigin = (*ray).origin;
+      
+          var denominator = dot(rayDirection, planeNormal);
+
+          var distanceToHit = dot(pointOnPlane - rayOrigin, planeNormal) / denominator;
+      
+          if (distanceToHit < (*ray).tmin || distanceToHit > (*ray).tmax) {
+            return false;
+          }
+      
+          // Check if the ray and plane are parallel (denominator is close to 0)
+          if (abs(denominator) < 1e-6) {
+            return false;
+          }
+      
+          // Calculate the intersection point
+          var intersectionPoint = rayOrigin + distanceToHit * rayDirection;
+      
+          if (length(intersectionPoint - pointOnPlane) > radius || length(intersectionPoint - pointOnPlane) > radius) {
+            return false;
+          }
+          
           (*ray).tmax = distanceToHit;
-          (*hitResult).hasHit = true;
           (*hitResult).point = intersectionPoint;
           (*hitResult).normal = plane.normal;
-          (*hitResult).color = planeColor((*hitResult));
-          (*hitResult).material = 1;
+          (*hitResult).hasHit = true;
           return true;
         }
 
-        return false;
-      }
+        fn cylinderIntersect(ray:ptr<function, Ray>, hitResult:ptr<function, HitInfo>, cylinder: Cylinder) -> HitInfo {
 
-      fn getTriangleNormal(triangle: Triangle, intersectionPoint: vec3f) -> vec3f {
-        var vectorA = triangle.A - intersectionPoint;
-        var vectorB = triangle.B - intersectionPoint;
-        var vectorC = triangle.C - intersectionPoint;
-        var a0 = length(cross(triangle.A - triangle.B, triangle.A - triangle.C));
-        var a1 = length(cross(vectorB, vectorC)) / a0;
-        var a2 = length(cross(vectorC, vectorA)) / a0;
-        var a3 = length(cross(vectorA, vectorB)) / a0;
-        var normal = normalize(triangle.normA*a1 + triangle.normB*a2 + triangle.normC*a3);
-        return normal;
-       }
+          var cylinderStartPoint = cylinder.start;
+          var cylinderEndPoint = cylinder.end;
+          var cylinderRadius = cylinder.radius;
 
-      fn intersectRayWithTriangle(ray: ptr<function, Ray>, hitResult : ptr<function, HitInfo>, triangle: Triangle) -> bool {
-        var origin = (*ray).origin;
-        var direction = (*ray).direction;
+          var plane1 = RoundPlane(cylinder.start, -normalize(cylinder.end-cylinder.start), cylinder.radius);
+          var plane2 = RoundPlane(cylinder.end, -normalize(cylinder.start-cylinder.end), cylinder.radius);
 
-        var e0 = triangle.B - triangle.A;
-        var e1 = triangle.C - triangle.A;
+          var rayDirection = (*ray).direction;
+          var rayOrigin = (*ray).origin;
 
-        // Find face normal
-        var n = cross(e0, e1);
+          var cylinderAxis = cylinderEndPoint - cylinderStartPoint;
+          var oc = rayOrigin - cylinderStartPoint;
 
-        // Compute ray-plane intersection
-        var q = dot(direction, n);
+          var axisDotAxis = dot(cylinderAxis, cylinderAxis);
+          var axisDotRayDirection = dot(cylinderAxis, rayDirection);
+          var axisDotOC = dot(cylinderAxis, oc);
 
-        if(abs(q) < 1.0e-8f) {
-          return false;
+          var k2 = axisDotAxis - axisDotRayDirection * axisDotRayDirection;
+          var k1 = axisDotAxis * dot(oc, rayDirection) - axisDotOC * axisDotRayDirection;
+          var k0 = axisDotAxis * dot(oc, oc) - axisDotOC * axisDotOC - cylinderRadius * cylinderRadius * axisDotAxis;
+
+          var discriminant = k1 * k1 - k2 * k0;
+
+          intersectRayWithPlane(ray, hitResult, plane1);
+          intersectRayWithPlane(ray, hitResult, plane2);
+
+          if (discriminant < 0.0) {
+            return (*hitResult);
+          }
+
+          /////////////////////////////////////////////////////////////
+          // Check if the intersection point is on the cylinder body //
+          /////////////////////////////////////////////////////////////
+
+          let sqrtDiscriminant = sqrt(discriminant);
+          var t = (-k1 - sqrtDiscriminant) / k2;
+          var y = axisDotOC + t * axisDotRayDirection;
+
+          if (t < (*ray).tmin || t > (*ray).tmax) {
+            return (*hitResult);
+          }
+
+          if (y > 0.0 && y < axisDotAxis) {
+            let intersectionPoint = rayOrigin + t * rayDirection;
+            let normal = (intersectionPoint - cylinderStartPoint - cylinderAxis * (y / axisDotAxis)) / cylinderRadius;
+            (*ray).tmax = t;
+            (*hitResult).point = intersectionPoint;
+            (*hitResult).normal = normal;
+            (*hitResult).hasHit = true;
+            return (*hitResult);
+          }
+
+          /////////////////////////////////////////////////////////////
+          // Check if the intersection point is on the cylinder caps //
+          /////////////////////////////////////////////////////////////
+
+ 
+          return (*hitResult);
         }
 
-        q = 1.0f/q;
-        var o_to_v0 = triangle.A - origin;
-        var t = dot(o_to_v0, n)*q;
-
-        if(t > (*ray).tmax) {
-          return false;
+        struct Cylinder {
+          radius: f32,
+          height: f32,
+          start: vec3f, 
+          end: vec3f, 
         }
 
-        var n_tmp = cross(o_to_v0, direction);
-        var beta = dot(n_tmp, e1)*q;
-
-        if(beta < 0.0f) {
-          return false;
+        struct RoundPlane {
+          point: vec3f, 
+          normal: vec3f, 
+          radius: f32
         }
 
-        var gamma = -dot(n_tmp, e0)*q;
-
-        if(gamma < 0.0f || beta + gamma > 1.0f) {
-          return false;
+        fn rotateZ3D(theta: f32) -> mat3x3<f32>{
+          var c = cos(theta);
+          var s = sin(theta);
+      
+          return mat3x3(
+            vec3f(c, -s, 0.0),
+            vec3f(s, c, 0.0),
+            vec3f(0.0, 0.0, 1.0)
+          );
         }
 
-        var intersectionPoint = origin + t * direction;
-        var normalToTriangle = getTriangleNormal(triangle, intersectionPoint);
+        fn shade(hitResult: HitInfo) -> vec4f {
+          var ambient = vec3f(0.1);
+          var lightDir = normalize( lightPos - hitResult.point );
+          var diffuse = ( dot( hitResult.normal, lightDir ) );
+          diffuse = clamp( diffuse, 0, 1);
+          var v = normalize(vec3f(funiforms.scrollValue, funiforms.scrollValue, 0.0) - hitResult.point);
+          var shinnyfactor = 40.0;
+          var h = (lightDir+v)*0.5;
+          var hdotn = dot(h,hitResult.normal);
+          var specular = pow(hdotn, shinnyfactor);
+              
+          var fragColor = ambient +
+                          vec3f(0.9,0.7,0.1) * diffuse +
+                          vec3f(1.0,0.9,0.9) * specular;
 
-        (*ray).tmax = t;
-        (*hitResult).normal =normalToTriangle;
-        (*hitResult).point = intersectionPoint;
-        (*hitResult).hasHit = true;
-        (*hitResult).color = DEBUG_WHITE;
-        (*hitResult).material = 2;
-
-        return true;
-      }
-
-      fn intersectRayWithTriMesh(ray: ptr<function, Ray>, hitResult : ptr<function, HitInfo>) -> HitInfo {
-        var index: vec3<u32>;
-
-        for (var t:i32=0; t<iuniforms.numberOfTriangles; t=t+1) {
-          index = indices[u32(t)];
-          var triangle = Triangle(points[index.x], points[index.y], points[index.z], normals[index.x], normals[index.y], normals[index.z]);
-          intersectRayWithTriangle(ray, hitResult, triangle);
+          return vec4f(fragColor, 1.0);
         }
-        return (*hitResult);
-      }
 
-      fn sceneIntersect(ray:ptr<function, Ray>, hitResult:ptr<function, HitInfo>) -> HitInfo
-      {
-        intersectRayWithPlane(ray, hitResult, scenePlane1);
-        intersectRayWithTriMesh(ray, hitResult);
-        return (*hitResult);
-      }
-
-      fn shadeMaterial(ray:ptr<function, Ray>, hitResult:ptr<function, HitInfo>) -> vec4f
+        fn sceneIntersect(ray:ptr<function, Ray>, hitResult:ptr<function, HitInfo>) -> HitInfo
         {
-          if((*hitResult).material == 2) {
-            var ka = vec3f(0.5,0.5,0.6);
-            var kd = vec3f(0.2,0.6,0.2);
-            var hitDistanceFromLight = length(lightPos - (*hitResult).point);
-            var Ie = 1.0;
-            var lightDir = normalize(lightPos - (*hitResult).point);
-            var diffuse = (1/(hitDistanceFromLight*hitDistanceFromLight)) * Ie * (dot((*hitResult).normal, lightDir));
-            diffuse = clamp( diffuse, 0, 1);
-            var v = normalize((*ray).origin - (*hitResult).point);
-            var fragColor = vec4f((ka + kd*diffuse), 1.0);
-            return fragColor;
-         }
-         var fragColor = vec4f((*hitResult).color);
-         return fragColor;
-      }
-
-
-      fn getRay(uv: vec2f) -> Ray {
-        var adjusted_eye = vec3f(funiforms.scrollValue, funiforms.scrollValue*0.75, funiforms.scrollValue);
-        var v =  normalize(lookAtPoint-adjusted_eye);
-        var b1 = normalize(cross(v, upVector));
-        var b2 = (cross(b1, v));
-        var q = normalize(uv.x * b1 + uv.y * b2 + v);
-        var ray: Ray;
-        ray.origin = adjusted_eye;
-        ray.direction = q;
-        ray.tmin = 0.001;
-        ray.tmax = 100;
-        return ray;
-      }
-
-      fn getBackgroundColor(uv: vec2f) -> vec4f {
-        var dayBlue = vec4f(0.529, 0.808, 0.922, 1.0); // Daytime sky blue
-        var duskPurple = vec4f(0.5, 0.0, 0.5, 1.0);     // Dusky purple for the horizon
-        var mixFactor = (uv.y) * 1.5;            // Adjust the mixing factor for a smooth transition
-        var skyColor = mix(dayBlue, duskPurple, mixFactor); // Blend the colors to create a blue sky
-        return skyColor;
-      }
-
-      @fragment
-      fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f {
-        var pointLight = Light(lightPos, 3.14);
-
-        let uv = vec2f(coords.x*0.5, coords.y*0.5);
-
-        var ray = getRay(uv);
-        var hitResult: HitInfo;
-        hitResult.hasHit = false;
-
-        var fragColor = vec4f(0.0);
-
-        sceneIntersect(&ray, &hitResult);
-
-        if(hitResult.hasHit) {
-          fragColor = shadeMaterial(&ray, &hitResult);
+          var rotMatrix = rotateZ3D(funiforms.theta);
+          var cylinder = Cylinder(1.0, 0.5, rotMatrix*vec3f(0.0,-0.1,0.0), rotMatrix*vec3f(0.0,0.1,0.0));
+          cylinderIntersect(ray, hitResult, cylinder);
+          (*hitResult).point = (*hitResult).point;
+          return (*hitResult);
         }
-        else {
+
+        fn getRay(uv: vec2f) -> Ray 
+        {
+          var adjusted_eye = vec3f(funiforms.scrollValue, funiforms.scrollValue, 0.0);
+          var v =  normalize(lookAtPoint-adjusted_eye);
+          var b1 = normalize(cross(v, upVector));
+          var b2 = (cross(b1, v));
+          var q = normalize(uv.x * b1 + uv.y * b2 + v);
+          var ray: Ray;
+          ray.origin = adjusted_eye;
+          ray.direction = q;
+          ray.tmin = 0.001;
+          ray.tmax = 100;
+          return ray;
+        }
+
+        fn getBackgroundColor(uv: vec2f) -> vec4f 
+        {
+          var dayBlue = vec4f(0.529, 0.808, 0.922, 1.0); 
+          var duskPurple = vec4f(0.5, 0.0, 0.5, 1.0);     
+          var mixFactor = (uv.y) * 1.5;           
+          var skyColor = mix(dayBlue, duskPurple, mixFactor); 
+          return skyColor;
+        }
+
+         @fragment
+         fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f {
+
+          var uv = vec2f(coords.x*0.5, coords.y*0.5);
+          
           var backgroundColor = getBackgroundColor(uv);
-          fragColor = backgroundColor;
+
+          var ray = getRay(uv);
+          var hitResult: HitInfo;
+          hitResult.hasHit = false;
+
+          var fragColor = vec4f(0.0);
+          sceneIntersect(&ray, &hitResult);
+
+          if( hitResult.hasHit ) { 
+            fragColor = shade(hitResult);
+          }
+
+          else { fragColor = backgroundColor; }
+
+          return vec4<f32>(fragColor.rgb, 1.0);
         }
 
-        return vec4<f32>(fragColor.rgb, 1.0);
-      }
-    </script>
+    </script
     <meta charset="UTF-8" />
 
     <title>
@@ -282,8 +262,7 @@
     <h3>02562 Rendering - Jessie Lonsdale S230002</h3>
 
     <h1>
-      💎 Rendering Realistic Gemstones with Physically Based Rendering
-      Techniques 💎
+      ⚜️ Rendering Many Golden Doubloons ⚜️
     </h1>
 
     <div id="canvas-container">
@@ -296,22 +275,7 @@
             <span class="toggle-slider"></span>
           </label>
         </div>
-        <div class="gem-cut-container">
-          <label for="gem-cut-label">Select a Gem Cut:</label>
-          <select id="gem-cut-selector">
-            <option value="Diamond">Brilliant Cut</option>
-            <option value="Ruby">Pear Cut</option>
-            <option value="Apatite">Princess Cut</option>
-            <option value="Citrine">Marquise Cut</option>
-          </select>
-        </div>
-        <div class="refractive-index-container">
-          <label for="refractive-index-label">Refractive Index : </label>
-          <input type="range" id="refractive-index" name="refractive-index
-          min="1" max="3" step="0.01" value="2.42" />
-          <div class="refractive-index-value" id="refractive-index-value">
-            2.42
-          </div>
+
         </div>
       </div>
     </div>
