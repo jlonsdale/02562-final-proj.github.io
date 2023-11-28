@@ -7,7 +7,9 @@
     <!-- WGSL code goes here -->
     <script id="wgsl" type="x-shader">
 
-         @group(0) @binding(0) var<uniform> funiforms : FUniforms;
+      @group(0) @binding(2) var texture: texture_2d<f32>;
+      @group(0) @binding(1) var textureSampler: sampler;
+      @group(0) @binding(0) var<uniform> funiforms : FUniforms;
 
         struct HitInfo {
           hasHit: bool,
@@ -17,7 +19,9 @@
           depth: i32,
           color: vec4<f32>,
           IOR: f32,
-          material: u32
+          material: u32,
+          texCoords: vec2<f32>,
+          useTexture: bool
         }
 
         struct Ray {
@@ -29,7 +33,9 @@
 
         struct FUniforms {
           scrollValue: f32,
-          theta: f32
+          theta: f32,
+          coinThickness: f32,
+          intensity: f32
         };
 
         struct VSOut {
@@ -40,7 +46,7 @@
         const lookAtPoint:vec3<f32> = vec3f(0.0, 0.5, 0.0);
         const eyePoint:vec3<f32> = vec3f(2.0,1.5,2.0);
         const upVector:vec3<f32> = vec3f(0.0,1.0,0.0);
-        const lightPos = vec3f(1.0,1.0,1.0);
+        const lightPos = vec3f(5.0,5.0,0.0);
 
         const DEBUG_RED =  vec4f(1.0,0.0,0.0,1.0);
         const DEBUG_WHITE =  vec4f(0.6,0.6,0.6,1.0);
@@ -55,8 +61,8 @@
           return vsOut;
         }
 
-        fn intersectRayWithPlane(ray:ptr<function, Ray>, hitResult:ptr<function, HitInfo>, plane: RoundPlane) -> bool {      
-          var pointOnPlane = plane.point;
+        fn intersectRayWithPlane(ray:ptr<function, Ray>, hitResult:ptr<function, HitInfo>, plane: RoundPlane, cylinder: Cylinder) -> bool {      
+          var pointOnPlane = plane.point; //some random point on the plane
           var planeNormal = plane.normal;
           var radius = plane.radius;
       
@@ -82,11 +88,21 @@
           if (length(intersectionPoint - pointOnPlane) > radius || length(intersectionPoint - pointOnPlane) > radius) {
             return false;
           }
+
+          var rotated = unrotateCoin(untranslateCoin(intersectionPoint, cylinder.shift))-radius;
+
+          var u = 0.5*rotated.z;
+          var v = 0.5*rotated.y;       
+
+          var texCoords = vec2(-u,v);
           
-          (*ray).tmax = distanceToHit;
+          (*ray).tmax = distanceToHit; 
           (*hitResult).point = intersectionPoint;
           (*hitResult).normal = plane.normal;
           (*hitResult).hasHit = true;
+          (*hitResult).color = vec4f(0.7216, 0.5255, 0.0431, 1.0);
+          (*hitResult).useTexture = true;
+          (*hitResult).texCoords = texCoords;
           return true;
         }
 
@@ -115,8 +131,8 @@
 
           var discriminant = k1 * k1 - k2 * k0;
 
-          intersectRayWithPlane(ray, hitResult, plane1);
-          intersectRayWithPlane(ray, hitResult, plane2);
+          intersectRayWithPlane(ray, hitResult, plane1, cylinder);
+          intersectRayWithPlane(ray, hitResult, plane2, cylinder);
 
           if (discriminant < 0.0) {
             return (*hitResult);
@@ -136,11 +152,13 @@
 
           if (y > 0.0 && y < axisDotAxis) {
             let intersectionPoint = rayOrigin + t * rayDirection;
-            let normal = (intersectionPoint - cylinderStartPoint - cylinderAxis * (y / axisDotAxis)) / cylinderRadius;
+            let normal = normalize((intersectionPoint - cylinderStartPoint - cylinderAxis * (y / axisDotAxis)) / cylinderRadius);
             (*ray).tmax = t;
             (*hitResult).point = intersectionPoint;
             (*hitResult).normal = normal;
             (*hitResult).hasHit = true;
+            (*hitResult).color = vec4f(0.7216, 0.5255, 0.0431, 1.0);
+            (*hitResult).useTexture = false;
             return (*hitResult);
           }
 
@@ -154,9 +172,9 @@
 
         struct Cylinder {
           radius: f32,
-          height: f32,
           start: vec3f, 
           end: vec3f, 
+          shift: vec3f
         }
 
         struct RoundPlane {
@@ -180,7 +198,8 @@
           var ambient = vec3f(0.1);
           var lightDir = normalize( lightPos - hitResult.point );
           var diffuse = ( dot( hitResult.normal, lightDir ) );
-          diffuse = clamp( diffuse, 0, 1);
+          var distance = length(lightPos - hitResult.point); 
+          diffuse = clamp( diffuse, 0, 1)*(funiforms.intensity/(distance*distance));
           var v = normalize(vec3f(funiforms.scrollValue, funiforms.scrollValue, 0.0) - hitResult.point);
           var shinnyfactor = 40.0;
           var h = (lightDir+v)*0.5;
@@ -194,13 +213,66 @@
           return vec4f(fragColor, 1.0);
         }
 
+        fn rotateCoin(input: vec3<f32>) -> vec3<f32> {
+          let angle = funiforms.theta;
+          let cosAngle = cos(angle);
+          let sinAngle = sin(angle);
+          let x = input.x * cosAngle - input.y * sinAngle;
+          let y = input.x * sinAngle + input.y * cosAngle;
+          let z = input.z;    
+          return vec3<f32>(x, y, z);
+       }
+      
+        fn unrotateCoin(input: vec3<f32>) -> vec3<f32> {
+          let angle = -funiforms.theta;
+          let cosAngle = cos(angle);
+          let sinAngle = sin(angle);
+          let x = input.x * cosAngle - input.y * sinAngle;
+          let y = input.x * sinAngle + input.y * cosAngle;
+          let z = input.z;    
+          return vec3<f32>(x, y, z);
+        }
+
+        fn translateCoin(input: vec3<f32>, shift: vec3<f32>) -> vec3<f32> {
+          let x = input.x + shift.x;
+          let y = input.y + shift.y;
+          let z = input.z + shift.z;
+          return vec3<f32>(x, y, z);
+        }
+
+        fn untranslateCoin(input: vec3<f32>, shift: vec3<f32>) -> vec3<f32> {
+          let x = input.x - shift.x;
+          let y = input.y - shift.y;
+          let z = input.z - shift.z;
+          return vec3<f32>(x, y, z);
+        }
+
+        fn generateCylinder(shift: vec3<f32>) -> Cylinder {
+          var coinThickness = funiforms.coinThickness;
+          var coinRadius = 1.0;
+          var topFace = translateCoin(rotateCoin(vec3f(coinThickness/2,0.0,0.0)), shift);
+          var bottomFace = translateCoin(rotateCoin(vec3f(-coinThickness/2,0.0,0.0)), shift);
+          var cylinder = Cylinder(coinRadius, topFace, bottomFace, shift);
+
+          return cylinder;
+        }
+
         fn sceneIntersect(ray:ptr<function, Ray>, hitResult:ptr<function, HitInfo>) -> HitInfo
         {
-          var rotMatrix = rotateZ3D(funiforms.theta);
-          var cylinder = Cylinder(1.0, 0.5, rotMatrix*vec3f(0.0,-0.1,0.0), rotMatrix*vec3f(0.0,0.1,0.0));
+        var cylinderPositions = array<vec3<f32>, 7> (
+          vec3<f32>(0.0, 0.0, 0.0), 
+          vec3<f32>(0.0, -4.0, 2.0), 
+          vec3<f32>(0.0, -4.0, -2.0),  
+          vec3<f32>(-4.0, 0.0, -2.0),
+          vec3<f32>(-4.0, 0.0, 2.0),
+          vec3<f32>(-5.0, -5.0, -5.0),
+          vec3<f32>(-5.0, -5.0, 5.0));  
+        for (var i: i32 = 0; i < 10; i = i + 1) {
+          var cylinder = generateCylinder(cylinderPositions[i]);
           cylinderIntersect(ray, hitResult, cylinder);
-          (*hitResult).point = (*hitResult).point;
-          return (*hitResult);
+        }
+        (*hitResult).point = (*hitResult).point;
+        return (*hitResult);
         }
 
         fn getRay(uv: vec2f) -> Ray 
@@ -240,9 +312,34 @@
 
           var fragColor = vec4f(0.0);
           sceneIntersect(&ray, &hitResult);
+          var texColor = textureSample(texture, textureSampler, hitResult.texCoords);
 
-          if( hitResult.hasHit ) { 
-            fragColor = shade(hitResult);
+
+          if(hitResult.hasHit) { 
+            if(hitResult.useTexture) {
+              fragColor = texColor*shade(hitResult); 
+            }
+            else {
+              fragColor = shade(hitResult); 
+            }
+
+            var lightDir = normalize(lightPos - hitResult.point);
+            var shadowRay: Ray;
+
+            shadowRay.origin = hitResult.point + 0.001*lightDir;
+            shadowRay.direction = lightDir;
+            shadowRay.tmax = length(lightPos - hitResult.point);
+            shadowRay.tmin = 0.001;
+            var shadowHitResult: HitInfo;
+            shadowHitResult.hasHit = false;
+            sceneIntersect(&shadowRay, &shadowHitResult);
+
+            var shadowConstant = 1.0;
+
+            if(shadowHitResult.hasHit) {
+              shadowConstant = 0.6;
+            }
+            fragColor = fragColor*shadowConstant;
           }
 
           else { fragColor = backgroundColor; }
@@ -262,20 +359,26 @@
     <h3>02562 Rendering - Jessie Lonsdale S230002</h3>
 
     <h1>
-      ⚜️ Rendering Many Golden Doubloons ⚜️
+      ⚜️ Dynamically Rendering Many Golden Coins ⚜️
     </h1>
 
     <div id="canvas-container">
       <canvas id="c" width="600" height="600"></canvas>
-      <div id="gem-info">
-        <div class="toggle-container">
-          <label class="toggle-label">Low Performance Mode:</label>
-          <label class="toggle-switch">
-            <input type="checkbox" id="performance-toggle" checked />
-            <span class="toggle-slider"></span>
-          </label>
+      <img id="tex" src="../assets/dtu.png" hidden=""/>
+      <div>
+        <div class="slider-container">
+          <label for="speedSlider">Speed:</label>
+          <input type="range" min="0" max="1" step="0.01" value="0.1" class="slider" id="speedSlider">
         </div>
-
+        <div class="slider-container">
+          <label for="thicknessSlider">Coin Thickness:</label>
+          <input type="range" min="0.01" max="1" step="0.01" value="0.05" class="slider" id="thicknessSlider">
+        </div>
+        <div class="slider-container">
+          <label for="thicknessSlider">Light Intensity:</label>
+          <input type="range" min="1.0" max="30" step="1.0" value="3" class="slider" id="itensitySlider">
+        </div>
+        </div>
         </div>
       </div>
     </div>
