@@ -46,7 +46,7 @@
         const lookAtPoint:vec3<f32> = vec3f(0.0, 0.5, 0.0);
         const eyePoint:vec3<f32> = vec3f(2.0,1.5,2.0);
         const upVector:vec3<f32> = vec3f(0.0,1.0,0.0);
-        const lightPos = vec3f(0.0,2.0,1.0);
+        const lightPos = vec3f(2.0,6.0, -2.5);
 
         const DEBUG_RED =  vec4f(1.0,0.0,0.0,1.0);
         const DEBUG_WHITE =  vec4f(0.6,0.6,0.6,1.0);
@@ -259,18 +259,29 @@
 
         fn sceneIntersect(ray:ptr<function, Ray>, hitResult:ptr<function, HitInfo>) -> HitInfo
         {
-        var cylinderPositions = array<vec3<f32>, 7> (
+        var cylinderPositions = array<vec3<f32>, 10> (
           vec3<f32>(0.0, 0.0, 0.0), 
+
           vec3<f32>(0.0, -4.0, 2.0), 
-          vec3<f32>(0.0, -4.0, -2.0),  
+
           vec3<f32>(-4.0, 0.0, -2.0),
-          vec3<f32>(-4.0, 0.0, 2.0),
-          vec3<f32>(-5.0, -5.0, -5.0),
-          vec3<f32>(-5.0, -5.0, 5.0));  
-        for (var i: i32 = 0; i < 10; i = i + 1) {
+          vec3<f32>(-4.5, 1.5, -3.5),
+
+          vec3<f32>(-4.0, -4.0, -4.0),
+          vec3<f32>(-4.0, -4.0, 4.0),
+            
+          vec3<f32>(-1.2, -3.5, -1.2),
+          vec3<f32>(-1.2, -3.5, 5.2),
+              
+          vec3<f32>(1.2, 3.5, 1.2),
+          vec3<f32>(5.0, 2.0, -2.5),
+        );
+
+        for (var i: i32 = 0; i < 20; i = i + 1) {
           var cylinder = generateCylinder(cylinderPositions[i]);
           cylinderIntersect(ray, hitResult, cylinder);
         }
+
         (*hitResult).point = (*hitResult).point;
         return (*hitResult);
         }
@@ -368,15 +379,15 @@
       <div>
         <div class="slider-container">
           <label for="speedSlider">Speed:</label>
-          <input type="range" min="0" max="1" step="0.01" value="0.1" class="slider" id="speedSlider">
+          <input type="range" min="0" max="1" step="0.01" value="0.01" class="slider" id="speedSlider">
         </div>
         <div class="slider-container">
           <label for="thicknessSlider">Coin Thickness:</label>
-          <input type="range" min="0.01" max="1" step="0.01" value="0.05" class="slider" id="thicknessSlider">
+          <input type="range" min="0.01" max="1" step="0.01" value="0.1" class="slider" id="thicknessSlider">
         </div>
         <div class="slider-container">
           <label for="thicknessSlider">Light Intensity:</label>
-          <input type="range" min="1.0" max="30" step="1.0" value="3" class="slider" id="itensitySlider">
+          <input type="range" min="1.0" max="100" step="1.0" value="40" class="slider" id="itensitySlider">
         </div>
         </div>
         </div>

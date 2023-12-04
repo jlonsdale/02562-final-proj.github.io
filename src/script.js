@@ -2,11 +2,11 @@ window.onload = function () {
   main();
 };
 
-let scrollValue = 5;
+let scrollValue = 10;
 let theta = 0.0;
-let dtheta = 0.05;
+let dtheta = 0.01;
 let coinThickness = 0.1;
-let intensity = 3;
+let intensity = 20;
 
 const minscrollValue = 5;
 const maxscrollValue = 100;
