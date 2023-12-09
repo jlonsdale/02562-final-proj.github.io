@@ -10,6 +10,8 @@
       @group(0) @binding(2) var texture: texture_2d<f32>;
       @group(0) @binding(1) var textureSampler: sampler;
       @group(0) @binding(0) var<uniform> funiforms : FUniforms;
+      @group(0) @binding(3) var<storage, read> jitters: array<vec2<f32>>;
+      @group(0) @binding(4) var<uniform> iuniforms : IUniforms;
 
         struct HitInfo {
           hasHit: bool,
@@ -36,6 +38,10 @@
           theta: f32,
           coinThickness: f32,
           intensity: f32
+        };
+
+        struct IUniforms {
+          subdivisionLevel: u32,
         };
 
         struct VSOut {
@@ -199,7 +205,7 @@
           var lightDir = normalize( lightPos - hitResult.point );
           var diffuse = ( dot( hitResult.normal, lightDir ) );
           var distance = length(lightPos - hitResult.point); 
-          diffuse = clamp( diffuse, 0, 1)*(funiforms.intensity/(distance*distance));
+          diffuse = clamp(diffuse, 0, 1)*(funiforms.intensity/(distance*distance));
           var v = normalize(vec3f(funiforms.scrollValue, funiforms.scrollValue, 0.0) - hitResult.point);
           var shininess = 50.0;
           var h = (lightDir+v)*0.5;
@@ -209,6 +215,9 @@
           var fragColor = ambient +
                           vec3f(0.9,0.7,0.1) * diffuse +
                           vec3f(1.0,0.9,0.9) * specular;
+
+
+          fragColor = vec3(clamp(fragColor.x, 0.1, 1),clamp(fragColor.y, 0.1, 1),clamp(fragColor.z, 0.1, 1));
 
           return vec4f(fragColor, 1.0);
         }
@@ -320,40 +329,58 @@
           var ray = getRay(uv);
           var hitResult: HitInfo;
           hitResult.hasHit = false;
+          var shadowConstant = 1.0;
+
+          var subdivisionLevel = iuniforms.subdivisionLevel;
 
           var fragColor = vec4f(0.0);
-          sceneIntersect(&ray, &hitResult);
-          var texColor = textureSample(texture, textureSampler, hitResult.texCoords);
 
+          for (var i: u32 = 0; i < subdivisionLevel; i = i + 1) {
+            for (var j: u32 = 0; j < subdivisionLevel; j = j + 1) {
 
-          if(hitResult.hasHit) { 
-            if(hitResult.useTexture) {
-              fragColor = texColor*shade(hitResult); 
-            }
-            else {
-              fragColor = shade(hitResult); 
-            }
+                // Calculate jittered UV coordinates
+                var jitterX = jitters[i * subdivisionLevel + j].x;
+                var jitterY = jitters[i * subdivisionLevel + j].y;
+                var jitteredUV: vec2f = coords + vec2f(jitterX, jitterY);
 
-            var lightDir = normalize(lightPos - hitResult.point);
-            var shadowRay: Ray;
+                var ray = getRay(jitteredUV);
+                var hitResult: HitInfo;
+                hitResult.hasHit = false;
 
-            shadowRay.origin = hitResult.point + 0.001*lightDir;
-            shadowRay.direction = lightDir;
-            shadowRay.tmax = length(lightPos - hitResult.point);
-            shadowRay.tmin = 0.001;
-            var shadowHitResult: HitInfo;
-            shadowHitResult.hasHit = false;
-            sceneIntersect(&shadowRay, &shadowHitResult);
+                sceneIntersect(&ray, &hitResult);
 
-            var shadowConstant = 1.0;
+                var texColor = textureSample(texture, textureSampler, hitResult.texCoords);
 
-            if(shadowHitResult.hasHit) {
-              shadowConstant = 0.6;
-            }
-            fragColor = fragColor*shadowConstant;
-          }
+                if (hitResult.hasHit) {
+                  if (hitResult.useTexture) {
+                    fragColor = fragColor+(texColor*shade(hitResult)); 
+                  } else {
+                    fragColor = fragColor+shade(hitResult); 
+                  }
+        
+                  var lightDir = normalize(lightPos - hitResult.point);
+                  var shadowRay: Ray;
+    
+                  shadowRay.origin = hitResult.point + 0.001*lightDir;
+                  shadowRay.direction = lightDir;
+                  shadowRay.tmax = length(lightPos - hitResult.point);
+                  shadowRay.tmin = 0.001;
+                  var shadowHitResult: HitInfo;
+                  shadowHitResult.hasHit = false;
+                  sceneIntersect(&shadowRay, &shadowHitResult);
+      
+                  shadowConstant = 1.0;
+      
+                  if(shadowHitResult.hasHit) {
+                    shadowConstant = 1.0;
+                  }
+                  fragColor = fragColor;
+                }
+                else {fragColor = fragColor+backgroundColor;}
+             }
+           }
 
-          else { fragColor = backgroundColor; }
+          fragColor = shadowConstant*fragColor / f32(subdivisionLevel*subdivisionLevel);
 
           return vec4<f32>(fragColor.rgb, 1.0);
         }
@@ -373,6 +400,10 @@
       ⚜️ Dynamically Rendering Many Golden Coins ⚜️
     </h1>
 
+    <h4>
+      Please use the mouse scroll wheel to zoom in and out. 
+    </h4>
+
     <div id="canvas-container">
       <canvas id="c" width="600" height="600"></canvas>
       <img id="tex" src="./common/dtu.png" hidden=""/>
@@ -389,8 +420,17 @@
           <label for="thicknessSlider">Light Intensity:</label>
           <input type="range" min="1.0" max="100" step="1.0" value="40" class="slider" id="itensitySlider">
         </div>
+        <div class="slider-container">
+          <label for="checkbox">Anti-Aliasing Active: </label>
+          <input type="checkbox" id="toggleSwitch">
+        </div>
+        <div class="slider-container" id="anti-aliasing-container" style="display: none;">
+          <label for="Anti-Aliasing">Subdevision Level:</label>
+          <input type="range" min="2" max="10" step="1.0" value="2" class="slider" id="antiAliasingSlider">
         </div>
         </div>
+        </div>
+      </div>
       </div>
     </div>
   </body>

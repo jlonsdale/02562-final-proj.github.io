@@ -2,13 +2,16 @@ window.onload = function () {
   main();
 };
 
-let scrollValue = 10;
+let scrollValue = 5;
 let theta = 0.0;
 let dtheta = 0.01;
 let coinThickness = 0.1;
 let intensity = 20;
+let subdivisionLevel = 1;
+let jitters = [];
+let activeAntiAliasing = false;
 
-const minscrollValue = 5;
+const minscrollValue = 1;
 const maxscrollValue = 100;
 
 async function main() {
@@ -17,6 +20,25 @@ async function main() {
       minscrollValue,
       Math.min(maxscrollValue, scrollValue + (event.deltaY < 0 ? -0.05 : 0.05))
     );
+  };
+
+  const compute_jitters = (subdivisionLevel) => {
+    if (subdivisionLevel == 1) {
+      //if subdevision level is 1 - effectively the anti aliasing is turned off.
+      jittersArray = [0.0, 0.0];
+      return jittersArray;
+    }
+    jittersArray = [];
+    const jitterScale = 0.005; // Adjust this scale factor to control jitter size
+
+    for (let i = 0; i < subdivisionLevel; i++) {
+      for (let j = 0; j < subdivisionLevel; j++) {
+        const jitterX = ((i + Math.random()) * jitterScale) / subdivisionLevel;
+        const jitterY = ((j + Math.random()) * jitterScale) / subdivisionLevel;
+        jittersArray.push(jitterX, jitterY);
+      }
+    }
+    return jittersArray;
   };
 
   const speedSlider = document.getElementById("speedSlider");
@@ -33,6 +55,27 @@ async function main() {
   itensitySlider.oninput = (event) => {
     intensity = parseFloat(event.target.value);
   };
+
+  const antiAliasingSlider = document.getElementById("antiAliasingSlider");
+  antiAliasingSlider.oninput = (event) => {
+    subdivisionLevel = parseInt(event.target.value);
+  };
+
+  const toggleSwitch = document.getElementById("toggleSwitch");
+  const sliderContainer = document.getElementById("anti-aliasing-container");
+
+  toggleSwitch.addEventListener("change", () => {
+    activeAntiAliasing = !activeAntiAliasing;
+
+    if (activeAntiAliasing) {
+      sliderContainer.style.display = "block";
+      subdivisionLevel = parseInt(2);
+      antiAliasingSlider.value = 2;
+    } else {
+      sliderContainer.style.display = "none";
+      subdivisionLevel = parseInt(1);
+    }
+  });
 
   const gpu = navigator.gpu;
   const adapter = await gpu.requestAdapter();
@@ -93,12 +136,6 @@ async function main() {
   let selectedWrapMode = "repeat";
   let selectedTexMode = "linear";
 
-  console.log(textureimg);
-
-  // Get references to the select elements
-  const wrapModeSelect = document.getElementById("wrapMode");
-  const filterModeSelect = document.getElementById("filterMode");
-
   texture.sampler = device.createSampler({
     addressModeU: selectedWrapMode,
     addressModeV: selectedWrapMode,
@@ -148,8 +185,23 @@ async function main() {
       size: funiforms.byteLength,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-
     device.queue.writeBuffer(f_uniformBuffer, 0, funiforms);
+
+    let jitterVectors = compute_jitters(subdivisionLevel);
+    jitters = new Float32Array(jitterVectors);
+
+    let jitterBuffer = device.createBuffer({
+      size: (jitters.byteLength + 2) & ~2,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(jitterBuffer, 0, jitters);
+
+    const iuniforms = new Uint32Array([subdivisionLevel]);
+    const i_uniformBuffer = await device.createBuffer({
+      size: iuniforms.byteLength,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(i_uniformBuffer, 0, iuniforms);
 
     const bindGroup = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
@@ -157,6 +209,8 @@ async function main() {
         { binding: 0, resource: { buffer: f_uniformBuffer } },
         { binding: 1, resource: texture.sampler },
         { binding: 2, resource: texture.createView() },
+        { binding: 3, resource: { buffer: jitterBuffer } },
+        { binding: 4, resource: { buffer: i_uniformBuffer } },
       ],
     });
 
