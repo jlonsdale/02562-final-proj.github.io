@@ -12,13 +12,13 @@ let jitters = [];
 let activeAntiAliasing = false;
 
 const minscrollValue = 1;
-const maxscrollValue = 100;
+const maxscrollValue = 50;
 
 async function main() {
   const handleScroll = (event) => {
     scrollValue = Math.max(
       minscrollValue,
-      Math.min(maxscrollValue, scrollValue + (event.deltaY < 0 ? -0.05 : 0.05))
+      Math.min(maxscrollValue, scrollValue + (event.deltaY < 0 ? -0.5 : 0.5))
     );
   };
 
